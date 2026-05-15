@@ -975,7 +975,7 @@ geser: {"op":"shift","names":[],"minutes":0}
 
 Jika pertanyaan biasa, balas Bahasa Indonesia santai, maks 80 kata. Jika operasi, balas HANYA JSON.`;
   try{
-    const res=await fetch('https://api.openai.com/v1/chat/completions',{
+    const res=await fetch('https://ilhamos.ilhamloviannufus.workers.dev',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+aiKey},
       body:JSON.stringify({
