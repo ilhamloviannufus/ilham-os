@@ -285,8 +285,9 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
   <div class="hdate" id="hdate">—</div>
   <div id="clock">00:00</div>
   <div style="display:flex;gap:4px;margin-left:6px">
-    <input class="hdr-inp" id="w1" placeholder="WA (628…)" oninput="S.wa1=this.value;sv()" title="Nomor WA tujuan (628xxx)">
-    <input class="hdr-inp" id="wk" placeholder="Fonnte token" style="width:90px" oninput="S.waKey=this.value;sv()" title="Token Fonnte dari dashboard">
+    <input class="hdr-inp" id="w1" placeholder="WA1 (628…)" oninput="S.wa1=this.value;sv()" title="Nomor WA utama">
+    <input class="hdr-inp" id="w2" placeholder="WA2 (opt)" oninput="S.wa2=this.value;sv()" title="Nomor WA kedua (opsional)">
+    <input class="hdr-inp" id="wk" placeholder="Fonnte token" style="width:90px" oninput="S.waKey=this.value;sv()" title="Token Fonnte">
     <div class="icon-btn mob-settings-toggle" onclick="toggleMobSettings()" title="Pengaturan WA" style="font-size:12px;font-weight:700;color:var(--tx2)">WA</div>
     <div class="icon-btn" onclick="toggleTheme()" id="theme-ico">🌙</div>
     <div class="icon-btn" onclick="reqNotif()">🔔</div>
@@ -296,8 +297,12 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 <!-- Mobile settings panel (WA setup) -->
 <div class="mob-settings" id="mob-settings">
   <div>
-    <label>Nomor WA (628xxx tanpa +)</label>
+    <label>Nomor WA 1 (628xxx tanpa +)</label>
     <input type="tel" id="mob-wa" placeholder="628xxxxxxxxxx" oninput="S.wa1=this.value;document.getElementById('w1').value=this.value;sv()">
+  </div>
+  <div>
+    <label>Nomor WA 2 (opsional)</label>
+    <input type="tel" id="mob-wa2" placeholder="628xxxxxxxxxx" oninput="S.wa2=this.value;document.getElementById('w2').value=this.value;sv()">
   </div>
   <div>
     <label>Fonnte Token</label>
@@ -980,10 +985,9 @@ function executeAIOp(op){
 }
 
 // ── NOTIFICATIONS (Fonnte) ──
-async function sendWA(msg,target){
+async function _sendToNum(num,msg){
   const token=S.waKey||'';
-  const num=target||S.wa1||'';
-  if(!token||!num){toast('Isi nomor WA & Fonnte token dulu!',2500);return false;}
+  if(!token||!num)return false;
   try{
     const fd=new FormData();
     fd.append('target',num);
@@ -995,17 +999,27 @@ async function sendWA(msg,target){
       body:fd
     });
     const data=await res.json();
-    if(data.status){toast('WA terkirim ✓');return true;}
-    else{toast('WA gagal: '+(data.reason||'unknown'),2500);return false;}
-  }catch(e){toast('WA error: '+e.message,2500);return false;}
+    return !!data.status;
+  }catch(e){return false;}
 }
-// alias untuk kompabilitas kode lama
+async function sendWA(msg){
+  const token=S.waKey||'';
+  if(!token){toast('Isi Fonnte token dulu!',2500);return;}
+  const nums=[S.wa1,S.wa2].filter(Boolean);
+  if(!nums.length){toast('Isi nomor WA dulu!',2500);return;}
+  let ok=0;
+  for(const n of nums){if(await _sendToNum(n,msg))ok++;}
+  if(ok>0)toast('WA terkirim ke '+ok+' nomor ✓');
+  else toast('WA gagal — cek device Fonnte',2500);
+}
 const sendWa=sendWA;
 
 async function testWA(){
-  if(!S.waKey||!S.wa1){toast('Isi nomor WA & Fonnte token di header!',2500);return;}
-  toast('Mengirim test WA…',1500);
-  await sendWA('🧪 Test dari Ilham OS — WA berhasil terhubung!');
+  if(!S.waKey){toast('Isi Fonnte token dulu!',2500);return;}
+  const nums=[S.wa1,S.wa2].filter(Boolean);
+  if(!nums.length){toast('Isi minimal 1 nomor WA!',2500);return;}
+  toast('Mengirim test ke '+nums.length+' nomor…',1500);
+  await sendWA('🧪 Test dari Ilham OS berhasil! Notifikasi jadwal & reminder akan masuk di sini.');
 }
 function scheduleNotifs(ev){if(ev.priority==='chill'||Notification.permission!=='granted')return;const now2=Date.now();const sm=new Date(ev.date+'T'+ev.start+':00').getTime();const em=new Date(ev.date+'T'+(ev.end>='24:00'?'23:59':ev.end)+':00').getTime();const t1=sm-5*60*1000-now2,t2=em-30*60*1000-now2,t3=em-now2;if(t1>0)setTimeout(()=>{new Notification('⏰ 5 mnt lagi: '+ev.name,{body:ev.start+'–'+ev.end+' · '+catLabel(ev.cat)});if(ev.priority==='urgent')sendWa('⏰ 5 mnt lagi: '+ev.name);},t1);if(t2>0)setTimeout(()=>{new Notification('⚠️ 30 mnt lagi selesai: '+ev.name);if(ev.priority==='urgent')sendWa('⚠️ 30 mnt lagi selesai: '+ev.name);},t2);if(t3>0)setTimeout(()=>new Notification('✅ '+ev.name+' — sudah selesai?'),t3);}
 function schedWaRem(r){const ms=new Date(todayISO()+'T'+(r.time||'09:00')+':00').getTime()-Date.now();if(ms>0)setTimeout(()=>sendWa('🔔 REMINDER: '+r.text),ms);}
@@ -1120,10 +1134,11 @@ function renderAll(){renderCal();renderBank();}
 
 window.addEventListener('load',()=>{
   document.getElementById('w1').value=S.wa1||'';
+  document.getElementById('w2').value=S.wa2||'';
   document.getElementById('wk').value=S.waKey||'';
-  // sync mobile settings fields
-  const mw=document.getElementById('mob-wa'),mt=document.getElementById('mob-token');
+  const mw=document.getElementById('mob-wa'),mw2=document.getElementById('mob-wa2'),mt=document.getElementById('mob-token');
   if(mw)mw.value=S.wa1||'';
+  if(mw2)mw2.value=S.wa2||'';
   if(mt)mt.value=S.waKey||'';
   applyMobIcons();
   window.addEventListener('resize',applyMobIcons);
