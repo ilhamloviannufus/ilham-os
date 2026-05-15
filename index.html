@@ -58,6 +58,16 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 .hdr-inp{background:var(--glass2);border:1px solid var(--bdr);border-radius:6px;padding:3px 7px;font-size:11px;width:88px;color:var(--tx);font-family:'Inter',sans-serif}
 .hdr-inp:focus{outline:none;border-color:var(--ac)}
 @media(max-width:700px){.hdr-inp{display:none}}
+/* Settings panel mobile */
+.mob-settings{display:none;position:fixed;top:48px;left:0;right:0;z-index:80;background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border-bottom:1px solid var(--bdr2);padding:10px 14px;box-shadow:var(--sh2)}
+.mob-settings.on{display:flex;flex-direction:column;gap:8px}
+.mob-settings label{font-size:11px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;display:block}
+.mob-settings input{width:100%;background:var(--glass2);border:1px solid var(--bdr2);border-radius:7px;padding:8px 10px;font-size:14px;color:var(--tx);font-family:'Inter',sans-serif;outline:none}
+.mob-settings input:focus{border-color:var(--ac)}
+.mob-settings-row{display:flex;gap:8px}
+.mob-settings-row input{flex:1}
+.mob-test-btn{background:var(--ac);border:none;border-radius:7px;padding:8px 14px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap}
+@media(min-width:701px){.mob-settings{display:none!important}.mob-settings-toggle{display:none!important}}
 .icon-btn{background:var(--glass2);border:1px solid var(--bdr);border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;transition:.12s}
 .icon-btn:hover{background:var(--glass);box-shadow:var(--sh)}
 .tabs{height:34px;background:var(--glass2);backdrop-filter:var(--blur);border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:2px;padding:0 10px;flex-shrink:0}
@@ -71,7 +81,13 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 }
 /* BANK */
 .col-bank{width:210px;flex-shrink:0;background:var(--glass);backdrop-filter:var(--blur);border-right:1px solid var(--bdr);display:flex;flex-direction:column;overflow:hidden;min-height:0}
-@media(max-width:700px){.col-bank{width:100%;height:auto;max-height:200px;border-right:none;border-bottom:1px solid var(--bdr);flex-shrink:0}}
+@media(max-width:700px){
+  .col-bank{width:100%;height:auto;border-right:none;border-bottom:1px solid var(--bdr);flex-shrink:0;overflow:hidden}
+  .bank-body{overflow:hidden;transition:max-height .25s ease;max-height:160px}
+  .bank-body.collapsed{max-height:0}
+  .mob-collapse-ico{font-size:10px;color:var(--tx3);position:absolute;right:8px;top:50%;transform:translateY(-50%);transition:transform .2s;pointer-events:none}
+  .mob-collapse-ico.collapsed{transform:translateY(-50%) rotate(180deg)}
+}
 .bms-row{display:flex;padding:7px 7px 0}
 .bms{flex:1;text-align:center;font-size:11px;font-weight:600;padding:5px 0;border-radius:8px 8px 0 0;cursor:pointer;color:var(--tx3);background:none;border:none;border-bottom:2px solid transparent;font-family:'Inter',sans-serif;transition:.12s}
 .bms.on{color:var(--ac);border-bottom-color:var(--ac);background:var(--acl)}
@@ -173,10 +189,12 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 /* REMINDER */
 .col-rem{width:185px;flex-shrink:0;background:var(--glass);backdrop-filter:var(--blur);border-left:1px solid var(--bdr);display:flex;flex-direction:column;overflow:hidden;min-height:0}
 @media(max-width:700px){
-  .col-rem{width:100%;height:auto;max-height:220px;border-left:none;border-top:1px solid var(--bdr);flex-shrink:0;
-    /* extra bottom so floating AI bar doesn't cover content */
+  .col-rem{width:100%;height:auto;border-left:none;border-top:1px solid var(--bdr);flex-shrink:0;
     padding-bottom:calc(60px + env(safe-area-inset-bottom));
   }
+  .rem-body{overflow:hidden;transition:max-height .25s ease;max-height:200px}
+  .rem-body.collapsed{max-height:0}
+  .rem-hdr{cursor:pointer}
 }
 .rem-hdr{padding:9px 10px 6px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .rem-t{font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px}
@@ -269,9 +287,24 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
   <div style="display:flex;gap:4px;margin-left:6px">
     <input class="hdr-inp" id="w1" placeholder="WA (628…)" oninput="S.wa1=this.value;sv()" title="Nomor WA tujuan (628xxx)">
     <input class="hdr-inp" id="wk" placeholder="Fonnte token" style="width:90px" oninput="S.waKey=this.value;sv()" title="Token Fonnte dari dashboard">
+    <div class="icon-btn mob-settings-toggle" onclick="toggleMobSettings()" title="Pengaturan WA" style="font-size:12px;font-weight:700;color:var(--tx2)">WA</div>
     <div class="icon-btn" onclick="toggleTheme()" id="theme-ico">🌙</div>
     <div class="icon-btn" onclick="reqNotif()">🔔</div>
-    <div class="icon-btn" onclick="testWA()" title="Test kirim WA">📤</div>
+    <div class="icon-btn" onclick="testWA()" title="Test kirim WA" style="font-size:10px;font-weight:700;color:var(--tx2)">TEST</div>
+  </div>
+</div>
+<!-- Mobile settings panel (WA setup) -->
+<div class="mob-settings" id="mob-settings">
+  <div>
+    <label>Nomor WA (628xxx tanpa +)</label>
+    <input type="tel" id="mob-wa" placeholder="628xxxxxxxxxx" oninput="S.wa1=this.value;document.getElementById('w1').value=this.value;sv()">
+  </div>
+  <div>
+    <label>Fonnte Token</label>
+    <div class="mob-settings-row">
+      <input type="text" id="mob-token" placeholder="Token dari dashboard fonnte.com" oninput="S.waKey=this.value;document.getElementById('wk').value=this.value;sv()">
+      <button class="mob-test-btn" onclick="testWA()">Test</button>
+    </div>
   </div>
 </div>
 <div class="tabs">
@@ -281,12 +314,15 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 <div class="pages">
 <div id="cal" class="pg on">
   <div class="col-bank">
-    <div class="bms-row">
-      <button class="bms on" id="bms-w" onclick="setBM('work',this)">Pekerjaan</button>
-      <button class="bms" id="bms-k" onclick="setBM('kuliah',this)">Kuliah</button>
+    <div class="bms-row" id="bank-hdr" onclick="toggleMobPanel('bank')" style="cursor:pointer;position:relative">
+      <button class="bms on" id="bms-w" onclick="event.stopPropagation();setBM('work',this)">Pekerjaan</button>
+      <button class="bms" id="bms-k" onclick="event.stopPropagation();setBM('kuliah',this)">Kuliah</button>
+      <span class="mob-collapse-ico" id="bank-ico">▲</span>
     </div>
-    <button class="bank-add" onclick="openAddBank()">+ Tambah</button>
-    <div class="blist" id="blist"></div>
+    <div class="bank-body" id="bank-body">
+      <button class="bank-add" onclick="openAddBank()">+ Tambah</button>
+      <div class="blist" id="blist"></div>
+    </div>
   </div>
   <div class="col-cal">
     <div class="toolbar">
@@ -319,9 +355,12 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
     </div>
   </div>
   <div class="col-rem">
-    <div class="rem-hdr">
+    <div class="rem-hdr" onclick="toggleMobPanel('rem')" style="cursor:pointer">
       <span class="rem-t">Reminder</span>
-      <div class="rem-add-ico" onclick="openAddRem()">+</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span class="mob-collapse-ico" id="rem-ico">▲</span>
+        <div class="rem-add-ico" onclick="event.stopPropagation();openAddRem()">+</div>
+      </div>
     </div>
     <div class="rem-body" id="rem-body"></div>
   </div>
@@ -1050,6 +1089,30 @@ function renderFin(){
 function addInc(){const s=document.getElementById('in-s')?.value.trim(),n=Number(document.getElementById('in-n')?.value);if(!s||!n)return;S.incomes.push({id:'i'+Date.now(),src:s,nom:n,actual:n,date:'Manual'});document.getElementById('in-s').value='';document.getElementById('in-n').value='';sv();renderFin();}
 function addExp(){const nm=document.getElementById('ex-n')?.value.trim(),n=Number(document.getElementById('ex-m')?.value);if(!nm||!n)return;S.expenses.push({name:nm,nom:n});document.getElementById('ex-n').value='';document.getElementById('ex-m').value='';sv();renderFin();}
 
+// ── MOBILE HELPERS ──
+function toggleMobSettings(){
+  const p=document.getElementById('mob-settings');
+  p.classList.toggle('on');
+}
+// collapsed state: bank=false(open), rem=false(open) by default on mobile
+const _mobCollapsed={bank:false,rem:false};
+function toggleMobPanel(panel){
+  if(window.innerWidth>700)return; // desktop: no collapse
+  _mobCollapsed[panel]=!_mobCollapsed[panel];
+  if(panel==='bank'){
+    document.getElementById('bank-body').classList.toggle('collapsed',_mobCollapsed.bank);
+    document.getElementById('bank-ico').classList.toggle('collapsed',_mobCollapsed.bank);
+  } else {
+    document.getElementById('rem-body').classList.toggle('collapsed',_mobCollapsed.rem);
+    document.getElementById('rem-ico').classList.toggle('collapsed',_mobCollapsed.rem);
+  }
+}
+// hide mob-collapse-ico on desktop
+function applyMobIcons(){
+  const isMob=window.innerWidth<=700;
+  document.querySelectorAll('.mob-collapse-ico').forEach(el=>el.style.display=isMob?'':'none');
+}
+
 // ── TABS / CLOCK ──
 function switchTab(id,el){document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));document.querySelectorAll('.tb').forEach(b=>b.classList.remove('on'));document.getElementById(id).classList.add('on');el.classList.add('on');if(id==='fin')renderFin();}
 function updateClock(){const n=jkt();document.getElementById('clock').textContent=pad(n.getHours())+':'+pad(n.getMinutes());document.getElementById('hdate').textContent=DAY_L[n.getDay()]+', '+n.getDate()+' '+MON_S[n.getMonth()]+' '+n.getFullYear();const nl=document.getElementById('nl');if(nl&&S.viewDate===todayISO())nl.style.top=minToPx(curMin())+'px';}
@@ -1058,6 +1121,12 @@ function renderAll(){renderCal();renderBank();}
 window.addEventListener('load',()=>{
   document.getElementById('w1').value=S.wa1||'';
   document.getElementById('wk').value=S.waKey||'';
+  // sync mobile settings fields
+  const mw=document.getElementById('mob-wa'),mt=document.getElementById('mob-token');
+  if(mw)mw.value=S.wa1||'';
+  if(mt)mt.value=S.waKey||'';
+  applyMobIcons();
+  window.addEventListener('resize',applyMobIcons);
   applyTheme();curView=S.view||'day';viewDate=new Date((S.viewDate||todayISO())+'T00:00:00');bankMode=S.bankMode||'work';
   const vbs=document.querySelectorAll('.vb');const vm={day:0,week:1,month:2};vbs.forEach(b=>b.classList.remove('on'));if(vbs[vm[curView]])vbs[vm[curView]].classList.add('on');
   const bel=document.getElementById(bankMode==='kuliah'?'bms-k':'bms-w');if(bel){document.querySelectorAll('.bms').forEach(b=>b.classList.remove('on'));bel.classList.add('on');}
