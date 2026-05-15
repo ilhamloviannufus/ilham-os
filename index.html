@@ -288,13 +288,14 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
     <input class="hdr-inp" id="w1" placeholder="WA1 (628…)" oninput="S.wa1=this.value;sv()" title="Nomor WA utama">
     <input class="hdr-inp" id="w2" placeholder="WA2 (opt)" oninput="S.wa2=this.value;sv()" title="Nomor WA kedua (opsional)">
     <input class="hdr-inp" id="wk" placeholder="Fonnte token" style="width:90px" oninput="S.waKey=this.value;sv()" title="Token Fonnte">
-    <div class="icon-btn mob-settings-toggle" onclick="toggleMobSettings()" title="Pengaturan WA" style="font-size:12px;font-weight:700;color:var(--tx2)">WA</div>
+    <input class="hdr-inp" id="ak" placeholder="OpenAI key" style="width:90px" oninput="S.aiKey=this.value;sv()" title="OpenAI API Key (sk-...)">
+    <div class="icon-btn mob-settings-toggle" onclick="toggleMobSettings()" title="Pengaturan" style="font-size:12px;font-weight:700;color:var(--tx2)">⚙</div>
     <div class="icon-btn" onclick="toggleTheme()" id="theme-ico">🌙</div>
     <div class="icon-btn" onclick="reqNotif()">🔔</div>
     <div class="icon-btn" onclick="testWA()" title="Test kirim WA" style="font-size:10px;font-weight:700;color:var(--tx2)">TEST</div>
   </div>
 </div>
-<!-- Mobile settings panel (WA setup) -->
+<!-- Mobile settings panel -->
 <div class="mob-settings" id="mob-settings">
   <div>
     <label>Nomor WA 1 (628xxx tanpa +)</label>
@@ -305,11 +306,15 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
     <input type="tel" id="mob-wa2" placeholder="628xxxxxxxxxx" oninput="S.wa2=this.value;document.getElementById('w2').value=this.value;sv()">
   </div>
   <div>
-    <label>Fonnte Token</label>
+    <label>Fonnte Token (notifikasi WA)</label>
     <div class="mob-settings-row">
-      <input type="text" id="mob-token" placeholder="Token dari dashboard fonnte.com" oninput="S.waKey=this.value;document.getElementById('wk').value=this.value;sv()">
-      <button class="mob-test-btn" onclick="testWA()">Test</button>
+      <input type="text" id="mob-token" placeholder="Token dari fonnte.com" oninput="S.waKey=this.value;document.getElementById('wk').value=this.value;sv()">
+      <button class="mob-test-btn" onclick="testWA()">Test WA</button>
     </div>
+  </div>
+  <div>
+    <label>OpenAI API Key (AI Asri)</label>
+    <input type="password" id="mob-aikey" placeholder="sk-proj-…" oninput="S.aiKey=this.value;document.getElementById('ak').value=this.value;sv()">
   </div>
 </div>
 <div class="tabs">
@@ -944,7 +949,14 @@ document.querySelectorAll('.ov').forEach(o=>o.addEventListener('click',e=>{if(e.
 // ── AI CHAT ──
 async function sendAI(){
   const inp=document.getElementById('ai-in'),msg=inp.value.trim();if(!msg)return;
-  inp.value='';const resp=document.getElementById('ai-resp');resp.textContent='Asri sedang berpikir…';
+  const aiKey=S.aiKey||'';
+  if(!aiKey){
+    document.getElementById('ai-resp').textContent='⚙ Isi OpenAI API key dulu di pengaturan (ikon ⚙ di header).';
+    return;
+  }
+  inp.value='';
+  const resp=document.getElementById('ai-resp');
+  resp.textContent='Asri sedang berpikir…';
   const ds=S.viewDate;
   const evList=S.events.filter(e=>e.date===ds).map(e=>`"${e.name}" ${e.start}–${e.end} ${catLabel(e.cat)} ${e.priority}`).join('; ')||'kosong';
   const bkList=S.bank.filter(b=>!bankItemScheduled(b)).map(b=>`"${b.name}" ${catLabel(b.cat)} ${b.dur}m`).join('; ')||'kosong';
@@ -952,7 +964,7 @@ async function sendAI(){
 Jadwal ${ds}: ${evList}
 Bank belum dijadwal: ${bkList}
 
-Operasi yang bisa kamu lakukan — jika user meminta, balas HANYA JSON:
+Operasi yang bisa kamu lakukan — jika user meminta, balas HANYA JSON (tanpa teks lain):
 add event: {"op":"add","name":"","start":"HH:MM","end":"HH:MM","cat":"pupr/soga/freelance/kopken/personal/mrt/ctx/tech/rsch","priority":"urgent/normal/chill","date":"${ds}"}
 hapus: {"op":"delete","name":""}
 pindah waktu: {"op":"move","name":"","start":"HH:MM","end":"HH:MM"}
@@ -961,11 +973,23 @@ selesai: {"op":"done","name":""}
 tambah bank: {"op":"add_bank","name":"","cat":"","priority":"normal","dur":60}
 geser: {"op":"shift","names":[],"minutes":0}
 
-Jika pertanyaan biasa, balas dalam Bahasa Indonesia santai, maks 80 kata. Jika operasi, balas HANYA JSON.`;
+Jika pertanyaan biasa, balas Bahasa Indonesia santai, maks 80 kata. Jika operasi, balas HANYA JSON.`;
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:300,system:sys,messages:[{role:'user',content:msg}]})});
+    const res=await fetch('https://api.openai.com/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+aiKey},
+      body:JSON.stringify({
+        model:'gpt-4o-mini',
+        max_tokens:300,
+        messages:[
+          {role:'system',content:sys},
+          {role:'user',content:msg}
+        ]
+      })
+    });
     const data=await res.json();
-    const text=(data.content?.find(b=>b.type==='text')?.text||'').trim();
+    if(data.error){resp.textContent='Error: '+data.error.message;return;}
+    const text=(data.choices?.[0]?.message?.content||'').trim();
     let parsed=null;
     try{parsed=JSON.parse(text);}catch{const m=text.match(/\{[\s\S]*\}/);if(m)try{parsed=JSON.parse(m[0]);}catch{}}
     if(parsed?.op){resp.textContent='✓ '+executeAIOp(parsed);sv();renderAll();}
@@ -1136,10 +1160,12 @@ window.addEventListener('load',()=>{
   document.getElementById('w1').value=S.wa1||'';
   document.getElementById('w2').value=S.wa2||'';
   document.getElementById('wk').value=S.waKey||'';
-  const mw=document.getElementById('mob-wa'),mw2=document.getElementById('mob-wa2'),mt=document.getElementById('mob-token');
+  document.getElementById('ak').value=S.aiKey||'';
+  const mw=document.getElementById('mob-wa'),mw2=document.getElementById('mob-wa2'),mt=document.getElementById('mob-token'),ma=document.getElementById('mob-aikey');
   if(mw)mw.value=S.wa1||'';
   if(mw2)mw2.value=S.wa2||'';
   if(mt)mt.value=S.waKey||'';
+  if(ma)ma.value=S.aiKey||'';
   applyMobIcons();
   window.addEventListener('resize',applyMobIcons);
   applyTheme();curView=S.view||'day';viewDate=new Date((S.viewDate||todayISO())+'T00:00:00');bankMode=S.bankMode||'work';
