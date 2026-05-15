@@ -267,11 +267,11 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
   <div class="hdate" id="hdate">—</div>
   <div id="clock">00:00</div>
   <div style="display:flex;gap:4px;margin-left:6px">
-    <input class="hdr-inp" id="w1" placeholder="WA1 (628…)" oninput="S.wa1=this.value;sv()">
-    <input class="hdr-inp" id="w2" placeholder="WA2 (opt)" oninput="S.wa2=this.value;sv()">
-    <input class="hdr-inp" id="wk" placeholder="CMBot key" style="width:76px" oninput="S.waKey=this.value;sv()">
+    <input class="hdr-inp" id="w1" placeholder="WA (628…)" oninput="S.wa1=this.value;sv()" title="Nomor WA tujuan (628xxx)">
+    <input class="hdr-inp" id="wk" placeholder="Fonnte token" style="width:90px" oninput="S.waKey=this.value;sv()" title="Token Fonnte dari dashboard">
     <div class="icon-btn" onclick="toggleTheme()" id="theme-ico">🌙</div>
     <div class="icon-btn" onclick="reqNotif()">🔔</div>
+    <div class="icon-btn" onclick="testWA()" title="Test kirim WA">📤</div>
   </div>
 </div>
 <div class="tabs">
@@ -940,8 +940,34 @@ function executeAIOp(op){
   return'Operasi tidak dikenal';
 }
 
-// ── NOTIFICATIONS ──
-async function sendWa(msg){if(!S.waKey||!S.wa1){toast('Isi WA & CMBot key!',2500);return;}const nums=[S.wa1,S.wa2].filter(Boolean);for(const n of nums)try{await fetch(`https://api.callmebot.com/whatsapp.php?phone=${n}&text=${encodeURIComponent(msg)}&apikey=${S.waKey}`,{mode:'no-cors'});}catch{}toast('WA terkirim ✓');}
+// ── NOTIFICATIONS (Fonnte) ──
+async function sendWA(msg,target){
+  const token=S.waKey||'';
+  const num=target||S.wa1||'';
+  if(!token||!num){toast('Isi nomor WA & Fonnte token dulu!',2500);return false;}
+  try{
+    const fd=new FormData();
+    fd.append('target',num);
+    fd.append('message',msg);
+    fd.append('countryCode','62');
+    const res=await fetch('https://api.fonnte.com/send',{
+      method:'POST',
+      headers:{'Authorization':token},
+      body:fd
+    });
+    const data=await res.json();
+    if(data.status){toast('WA terkirim ✓');return true;}
+    else{toast('WA gagal: '+(data.reason||'unknown'),2500);return false;}
+  }catch(e){toast('WA error: '+e.message,2500);return false;}
+}
+// alias untuk kompabilitas kode lama
+const sendWa=sendWA;
+
+async function testWA(){
+  if(!S.waKey||!S.wa1){toast('Isi nomor WA & Fonnte token di header!',2500);return;}
+  toast('Mengirim test WA…',1500);
+  await sendWA('🧪 Test dari Ilham OS — WA berhasil terhubung!');
+}
 function scheduleNotifs(ev){if(ev.priority==='chill'||Notification.permission!=='granted')return;const now2=Date.now();const sm=new Date(ev.date+'T'+ev.start+':00').getTime();const em=new Date(ev.date+'T'+(ev.end>='24:00'?'23:59':ev.end)+':00').getTime();const t1=sm-5*60*1000-now2,t2=em-30*60*1000-now2,t3=em-now2;if(t1>0)setTimeout(()=>{new Notification('⏰ 5 mnt lagi: '+ev.name,{body:ev.start+'–'+ev.end+' · '+catLabel(ev.cat)});if(ev.priority==='urgent')sendWa('⏰ 5 mnt lagi: '+ev.name);},t1);if(t2>0)setTimeout(()=>{new Notification('⚠️ 30 mnt lagi selesai: '+ev.name);if(ev.priority==='urgent')sendWa('⚠️ 30 mnt lagi selesai: '+ev.name);},t2);if(t3>0)setTimeout(()=>new Notification('✅ '+ev.name+' — sudah selesai?'),t3);}
 function schedWaRem(r){const ms=new Date(todayISO()+'T'+(r.time||'09:00')+':00').getTime()-Date.now();if(ms>0)setTimeout(()=>sendWa('🔔 REMINDER: '+r.text),ms);}
 async function reqNotif(){if(Notification.permission==='default')await Notification.requestPermission();toast(Notification.permission==='granted'?'Notifikasi aktif ✓':'Notifikasi ditolak',2500);}
@@ -1030,7 +1056,8 @@ function updateClock(){const n=jkt();document.getElementById('clock').textConten
 function renderAll(){renderCal();renderBank();}
 
 window.addEventListener('load',()=>{
-  document.getElementById('w1').value=S.wa1||'';document.getElementById('w2').value=S.wa2||'';document.getElementById('wk').value=S.waKey||'';
+  document.getElementById('w1').value=S.wa1||'';
+  document.getElementById('wk').value=S.waKey||'';
   applyTheme();curView=S.view||'day';viewDate=new Date((S.viewDate||todayISO())+'T00:00:00');bankMode=S.bankMode||'work';
   const vbs=document.querySelectorAll('.vb');const vm={day:0,week:1,month:2};vbs.forEach(b=>b.classList.remove('on'));if(vbs[vm[curView]])vbs[vm[curView]].classList.add('on');
   const bel=document.getElementById(bankMode==='kuliah'?'bms-k':'bms-w');if(bel){document.querySelectorAll('.bms').forEach(b=>b.classList.remove('on'));bel.classList.add('on');}
