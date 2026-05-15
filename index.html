@@ -162,6 +162,8 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 .ea-done{background:rgba(16,185,129,.45)}
 .ea-done.active{background:rgba(16,185,129,.82)}
 .ea-bank{background:rgba(239,68,68,.38)}
+/* done event: hilang dari timeline tapi masih bisa di-undo */
+.ev.is-done{display:none}
 /* resize */
 .ev-rz{position:absolute;bottom:0;left:0;right:0;height:6px;cursor:s-resize;background:rgba(255,255,255,.2);border-radius:0 0 6px 6px;opacity:0;transition:.1s;z-index:13}
 .ev:hover .ev-rz{opacity:1}
@@ -453,7 +455,7 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 <!-- MODAL REMINDER -->
 <div class="ov" id="m-rem">
   <div class="modal">
-    <h3>Tambah Reminder</h3>
+    <h3 id="mr-t">Tambah Reminder</h3>
     <div class="m-grp"><div class="m-lbl">Teks</div><input class="m-in" id="mr-text" placeholder="Reminder…"></div>
     <div class="m-r2">
       <div class="m-grp"><div class="m-lbl">Jam</div><input class="m-in" id="mr-time" type="time" step="300"></div>
@@ -461,10 +463,36 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
         <select class="m-in" id="mr-pri"><option value="urgent">Urgent</option><option value="normal" selected>Normal</option><option value="chill">Santai</option></select>
       </div>
     </div>
+    <div class="m-grp"><div class="m-lbl">Pengulangan (opsional)</div>
+      <select class="m-in" id="mr-repeat" onchange="toggleRepeatOpts()">
+        <option value="">Tidak berulang</option>
+        <option value="daily">Setiap hari</option>
+        <option value="weekly">Setiap minggu</option>
+        <option value="monthly">Setiap bulan</option>
+        <option value="custom">Hari tertentu</option>
+      </select>
+    </div>
+    <div id="mr-days-wrap" class="m-grp" style="display:none">
+      <div class="m-lbl">Pilih hari</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="checkbox" value="1" class="mr-day" style="accent-color:var(--ac)">Sen</label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="checkbox" value="2" class="mr-day" style="accent-color:var(--ac)">Sel</label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="checkbox" value="3" class="mr-day" style="accent-color:var(--ac)">Rab</label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="checkbox" value="4" class="mr-day" style="accent-color:var(--ac)">Kam</label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="checkbox" value="5" class="mr-day" style="accent-color:var(--ac)">Jum</label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="checkbox" value="6" class="mr-day" style="accent-color:var(--ac)">Sab</label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="checkbox" value="0" class="mr-day" style="accent-color:var(--ac)">Min</label>
+      </div>
+    </div>
+    <div id="mr-until-wrap" class="m-grp" style="display:none">
+      <div class="m-lbl">Berhenti pada (opsional)</div>
+      <input class="m-in" id="mr-until" type="date">
+    </div>
     <div class="m-grp"><label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" id="mr-wa" style="accent-color:var(--ac)">Kirim WA saat waktunya</label></div>
     <div class="m-acts">
       <button class="m-cancel" onclick="closeOv('m-rem')">Batal</button>
-      <button class="m-ok" onclick="saveRem()">Simpan</button>
+      <button class="m-ok" id="mr-ok" onclick="saveRem()">Simpan</button>
+      <button class="m-del" id="mr-del" style="display:none" onclick="deleteRem(_editRemId)">Hapus</button>
     </div>
   </div>
 </div>
@@ -511,7 +539,53 @@ const DEF={events:[],bank:[],reminders:[],wa1:'',wa2:'',waKey:'',viewDate:todayI
 let S=JSON.parse(localStorage.getItem('ios-v15')||'null')||JSON.parse(JSON.stringify(DEF));
 ['events','bank','reminders','incomes','expenses'].forEach(k=>{if(!S[k])S[k]=[];});
 if(!S.doneIds)S.doneIds={};
-function sv(){localStorage.setItem('ios-v15',JSON.stringify(S));}
+// ── SUPABASE SYNC ──
+const SB_URL='https://itzvaajmpfjdmwmmgkcw.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml0enZhYWptcGZqZG13bW1na2N3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MTg4NjAsImV4cCI6MjA5NDM5NDg2MH0.1y3Gq_bdl1qULbSF-JpQTDsHdVWGOVDT6jHJFwRrbaI';
+const SB_USER='ilham'; // fixed user id
+let _sbSaveTimer=null;
+
+async function sbSave(){
+  const payload=JSON.stringify(S);
+  try{
+    await fetch(`${SB_URL}/rest/v1/data?user_id=eq.${SB_USER}`,{
+      method:'DELETE',
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
+    });
+    await fetch(`${SB_URL}/rest/v1/data`,{
+      method:'POST',
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify({user_id:SB_USER,payload})
+    });
+  }catch(e){console.warn('Supabase save error:',e);}
+}
+
+async function sbLoad(){
+  try{
+    const res=await fetch(`${SB_URL}/rest/v1/data?user_id=eq.${SB_USER}&select=payload`,{
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
+    });
+    const rows=await res.json();
+    if(rows&&rows.length&&rows[0].payload){
+      const remote=JSON.parse(rows[0].payload);
+      // merge: remote wins for events/bank/reminders, keep local credentials
+      const localCreds={wa1:S.wa1,wa2:S.wa2,waKey:S.waKey,aiKey:S.aiKey};
+      S={...remote,...localCreds};
+      ['events','bank','reminders','incomes','expenses'].forEach(k=>{if(!S[k])S[k]=[];});
+      if(!S.doneIds)S.doneIds={};
+      localStorage.setItem('ios-v15',JSON.stringify(S));
+      return true;
+    }
+  }catch(e){console.warn('Supabase load error:',e);}
+  return false;
+}
+
+// debounced save — tunggu 1.5 detik setelah perubahan terakhir baru sync
+function sv(){
+  localStorage.setItem('ios-v15',JSON.stringify(S));
+  clearTimeout(_sbSaveTimer);
+  _sbSaveTimer=setTimeout(()=>{sbSave();},1500);
+}
 function saveAndRender(msg){sv();renderAll();if(msg)toast(msg);}
 
 // ── THEME ──
@@ -897,17 +971,24 @@ function moCellClick(ds){S.viewDate=ds;viewDate=new Date(ds+'T00:00:00');setView
 function renderRemPanel(ds){
   const el=document.getElementById('rem-body');
   const urgEvs=S.events.filter(e=>e.date===ds&&e.priority==='urgent'&&!S.doneIds[e.id]);
-  const allR=[...getFixedRem(ds),...S.reminders].sort((a,b)=>t2m(a.time||'23:59')-t2m(b.time||'23:59'));
+  // Filter user reminders: non-recurring show all, recurring only show if active today
+  const userR=S.reminders.filter(r=>remActiveToday(r,ds));
+  const allR=[...getFixedRem(ds),...userR].sort((a,b)=>t2m(a.time||'23:59')-t2m(b.time||'23:59'));
+  const repeatLabel={daily:'Tiap hari',weekly:'Tiap minggu',monthly:'Tiap bulan',custom:'Hari tertentu'};
   let html='';
   if(urgEvs.length){html+=`<div class="rem-sec">Urgent</div>`;urgEvs.forEach(e=>{html+=`<div class="rem-item"><div class="ri-dot" style="background:var(--red)"></div><div><div class="ri-text">${e.name}</div><div class="ri-time">${e.start}–${e.end}</div></div></div>`;});}
   if(allR.length)html+=`<div class="rem-sec">Reminder</div>`;
   allR.forEach(r=>{
     const dot=r.priority==='urgent'?'var(--red)':r.priority==='chill'?'var(--grn)':'var(--ac)';
     const ck=r.fixed?(S._fxck&&S._fxck[ds+'_'+r.id])||false:!!r.checked;
+    const repBadge=r.repeat?`<span style="font-size:9px;background:var(--acl);color:var(--ac);padding:1px 5px;border-radius:99px;margin-left:4px">${repeatLabel[r.repeat]||r.repeat}</span>`:'';
     html+=`<div class="rem-item">
       <input type="checkbox" class="ri-chk" ${ck?'checked':''} ${r.fixed?`onchange="fxChk('${ds}','${r.id}',this.checked)"`:r.id?`onchange="remChk('${r.id}',this.checked)"`:''}>
       <div class="ri-dot" style="background:${dot}"></div>
-      <div style="flex:1"><div class="ri-text" style="${ck?'opacity:.4;text-decoration:line-through':''}">${r.text}</div>${r.time?`<div class="ri-time">${r.time}</div>`:''}</div>
+      <div style="flex:1">
+        <div class="ri-text" style="${ck?'opacity:.4;text-decoration:line-through':''}">${r.text}${repBadge}</div>
+        ${r.time?`<div class="ri-time">${r.time}${r.until?' · s.d. '+r.until:''}</div>`:''}
+      </div>
       ${!r.fixed?`<button onclick="delRem('${r.id}')" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:12px">×</button>`:''}
     </div>`;
   });
@@ -941,7 +1022,51 @@ function saveNewEv(){const name=document.getElementById('me-name').value.trim();
 function saveEditEv(){const ev=S.events.find(x=>x.id===_editEvId);if(!ev){toast('Tidak ditemukan');return;}ev.name=document.getElementById('me-name').value.trim()||ev.name;ev.cat=_meCat;ev.priority=getPri('me-pri');ev.start=document.getElementById('me-s').value;ev.end=document.getElementById('me-e').value;ev.date=document.getElementById('me-d').value;ev.note=document.getElementById('me-note').value;closeOv('m-ev');saveAndRender('Disimpan ✓');}
 function deleteEv(){if(!_editEvId)return;const i=S.events.findIndex(x=>x.id===_editEvId);if(i<0)return;const c={...S.events[i]};S.events.splice(i,1);closeOv('m-ev');saveAndRender('Dihapus');pushUndo('Event dihapus',()=>{S.events.push(c);saveAndRender();});}
 function openAddRem(){document.getElementById('mr-text').value='';document.getElementById('mr-time').value='';document.getElementById('mr-wa').checked=false;openOv('m-rem');}
-function saveRem(){const text=document.getElementById('mr-text').value.trim();if(!text){toast('Isi teks!');return;}const r={id:'rem_'+Date.now(),text,time:document.getElementById('mr-time').value||null,priority:document.getElementById('mr-pri').value,checked:false,sendWa:document.getElementById('mr-wa').checked};S.reminders.push(r);closeOv('m-rem');saveAndRender('Reminder ditambahkan ✓');if(r.sendWa&&r.time)schedWaRem(r);}
+function toggleRepeatOpts(){
+  const v=document.getElementById('mr-repeat').value;
+  document.getElementById('mr-days-wrap').style.display=v==='custom'?'':'none';
+  document.getElementById('mr-until-wrap').style.display=v?'':'none';
+}
+function remActiveToday(r,ds){
+  if(!r.repeat)return true; // non-recurring: always show
+  const d=new Date(ds+'T00:00:00');
+  const dow=d.getDay(); // 0=Sun,1=Mon...
+  if(r.until&&ds>r.until)return false; // past end date
+  if(r.repeat==='daily')return true;
+  if(r.repeat==='weekly'){
+    // same day of week as created
+    const created=new Date((r.createdDate||ds)+'T00:00:00');
+    return dow===created.getDay();
+  }
+  if(r.repeat==='monthly'){
+    const created=new Date((r.createdDate||ds)+'T00:00:00');
+    return d.getDate()===created.getDate();
+  }
+  if(r.repeat==='custom'){
+    const days=r.repeatDays||[];
+    return days.includes(String(dow===0?7:dow)); // Mon=1...Sun=7
+  }
+  return true;
+}
+function saveRem(){
+  const text=document.getElementById('mr-text').value.trim();if(!text){toast('Isi teks!');return;}
+  const repeat=document.getElementById('mr-repeat').value||'';
+  const until=document.getElementById('mr-until')?.value||null;
+  const days=repeat==='custom'?[...document.querySelectorAll('.mr-day:checked')].map(c=>c.value):[];
+  const r={
+    id:'rem_'+Date.now(),text,
+    time:document.getElementById('mr-time').value||null,
+    priority:document.getElementById('mr-pri').value,
+    checked:false,
+    sendWa:document.getElementById('mr-wa').checked,
+    repeat:repeat||null,
+    until:until||null,
+    repeatDays:days,
+    createdDate:todayISO()
+  };
+  S.reminders.push(r);closeOv('m-rem');saveAndRender('Reminder ditambahkan ✓');
+  if(r.sendWa&&r.time)schedWaRem(r);
+}
 function openOv(id){document.getElementById(id).classList.add('on');}
 function closeOv(id){document.getElementById(id).classList.remove('on');}
 document.querySelectorAll('.ov').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('on');}));
@@ -1051,10 +1176,13 @@ async function reqNotif(){if(Notification.permission==='default')await Notificat
 function reschedAll(){if(Notification.permission!=='granted')return;const t=todayISO();S.events.filter(e=>e.date>=t).forEach(scheduleNotifs);S.reminders.filter(r=>r.sendWa&&r.time).forEach(schedWaRem);}
 
 // ── FINANCE ──
-const FEXP=[{l:'UKT',n:1283000,t:'wajib'},{l:'Ortopedi',n:1000000,t:'wajib'},{l:'Tabungan',n:3000000,t:'target'},{l:'Makan',n:300000,t:'harian'},{l:'Transportasi',n:150000,t:'harian'},{l:'Darurat',n:500000,t:'buffer'},{l:'Internet',n:150000,t:'ops'},{l:'Google One',n:75000,t:'ops'},{l:'Envato',n:35000,t:'ops'},{l:'Claude',n:350000,t:'ops'},{l:'WFH',n:350000,t:'ops'},{l:'Jajan',n:200000,t:'flex'},{l:'Lainnya',n:350000,t:'flex'},{l:'Emas',n:500000,t:'investasi'}];
-const fxT=FEXP.reduce((s,e)=>s+e.n,0);
+const FEXP_DEF=[{l:'UKT',n:1283000,t:'wajib'},{l:'Ortopedi',n:1000000,t:'wajib'},{l:'Tabungan',n:3000000,t:'target'},{l:'Makan',n:300000,t:'harian'},{l:'Transportasi',n:150000,t:'harian'},{l:'Darurat',n:500000,t:'buffer'},{l:'Internet',n:150000,t:'ops'},{l:'Google One',n:75000,t:'ops'},{l:'Envato',n:35000,t:'ops'},{l:'Claude',n:350000,t:'ops'},{l:'WFH',n:350000,t:'ops'},{l:'Jajan',n:200000,t:'flex'},{l:'Lainnya',n:350000,t:'flex'},{l:'Emas',n:500000,t:'investasi'}];
+if(!S.fexp)S.fexp=JSON.parse(JSON.stringify(FEXP_DEF));
+
 function renderFin(){
   const w=document.getElementById('fin-wrap');if(!w)return;
+  if(!S.fexp)S.fexp=JSON.parse(JSON.stringify(FEXP_DEF));
+  const fxT=S.fexp.reduce((s,e)=>s+(Number(e.n)||0),0);
   const tI=S.incomes.reduce((s,i)=>s+(Number(i.actual)||Number(i.nom)||0),0);
   const tE=S.expenses.reduce((s,e)=>s+(Number(e.nom)||0),0);
   const tar=15000000,pct=Math.min(100,Math.round(tI/tar*100)),net=tI-fxT-tE,sav=7000000;
@@ -1081,14 +1209,20 @@ function renderFin(){
 
   const colExp=`<div class="fc">
     <div class="fc-t">💸 Pengeluaran — ${rp(fxT+tE)}</div>
-    ${FEXP.map(e=>`<div class="fr">
-      <div><span style="font-size:12px;font-weight:500">${e.l}</span> <span style="font-size:10px;color:var(--tx3)">${e.t}</span></div>
-      <div style="font-size:12px;font-weight:600;color:${e.t==='target'?'var(--amb)':e.t==='investasi'?'var(--grn)':'var(--red)'}">${rp(e.n)}</div>
+    ${S.fexp.map((e,i)=>`<div class="fr">
+      <div style="display:flex;align-items:center;gap:4px;flex:1;min-width:0">
+        <input value="${e.l}" style="background:none;border:none;border-bottom:1px solid var(--bdr);font-size:12px;font-weight:500;color:var(--tx);width:90px;font-family:'Inter',sans-serif;outline:none" onchange="S.fexp[${i}].l=this.value;sv();renderFin()">
+        <span style="font-size:10px;color:var(--tx3)">${e.t}</span>
+      </div>
+      <div style="display:flex;gap:4px;align-items:center">
+        <input type="number" value="${e.n}" class="fin-in" style="color:${e.t==='target'?'var(--amb)':e.t==='investasi'?'var(--grn)':'var(--red)'}" onchange="S.fexp[${i}].n=Number(this.value);sv();renderFin()">
+        <button onclick="S.fexp.splice(${i},1);sv();renderFin()" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:13px">×</button>
+      </div>
     </div>`).join('')}
     ${S.expenses.map((e,i)=>`<div class="fr">
-      <div style="font-size:12px;font-weight:500">${e.name}</div>
+      <input value="${e.name}" style="background:none;border:none;border-bottom:1px solid var(--bdr);font-size:12px;font-weight:500;color:var(--tx);flex:1;font-family:'Inter',sans-serif;outline:none" onchange="S.expenses[${i}].name=this.value;sv()">
       <div style="display:flex;gap:4px;align-items:center">
-        <span style="font-size:12px;font-weight:600;color:var(--red)">${rp(e.nom)}</span>
+        <input type="number" value="${e.nom}" class="fin-in" style="color:var(--red)" onchange="S.expenses[${i}].nom=Number(this.value);sv();renderFin()">
         <button onclick="S.expenses.splice(${i},1);sv();renderFin()" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:13px">×</button>
       </div>
     </div>`).join('')}
@@ -1097,6 +1231,7 @@ function renderFin(){
       <input class="fi-in" id="ex-m" type="number" placeholder="Nominal" style="flex:1">
       <button onclick="addExp()" style="background:var(--red);border:none;border-radius:7px;padding:5px 10px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif">+</button>
     </div>
+    <button onclick="S.fexp=JSON.parse(JSON.stringify(FEXP_DEF));sv();renderFin()" style="margin-top:8px;background:none;border:1px solid var(--bdr);border-radius:6px;padding:4px 10px;font-size:11px;color:var(--tx3);cursor:pointer;font-family:'Inter',sans-serif;width:100%">Reset ke default</button>
   </div>`;
 
   const colRem=`<div class="fc">
@@ -1153,32 +1288,62 @@ function applyMobIcons(){
 
 // ── TABS / CLOCK ──
 function switchTab(id,el){document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));document.querySelectorAll('.tb').forEach(b=>b.classList.remove('on'));document.getElementById(id).classList.add('on');el.classList.add('on');if(id==='fin')renderFin();}
-function updateClock(){const n=jkt();document.getElementById('clock').textContent=pad(n.getHours())+':'+pad(n.getMinutes());document.getElementById('hdate').textContent=DAY_L[n.getDay()]+', '+n.getDate()+' '+MON_S[n.getMonth()]+' '+n.getFullYear();const nl=document.getElementById('nl');if(nl&&S.viewDate===todayISO())nl.style.top=minToPx(curMin())+'px';}
+function updateClock(){
+  const n=jkt();
+  document.getElementById('clock').textContent=pad(n.getHours())+':'+pad(n.getMinutes());
+  document.getElementById('hdate').textContent=DAY_L[n.getDay()]+', '+n.getDate()+' '+MON_S[n.getMonth()]+' '+n.getFullYear();
+  const nl=document.getElementById('nl');
+  if(nl&&S.viewDate===todayISO())nl.style.top=minToPx(curMin())+'px';
+  // Auto-bank: jam 23:59 semua event hari ini yang belum selesai balik ke bank
+  const h=n.getHours(),m=n.getMinutes();
+  if(h===23&&m===59){
+    const today=todayISO();
+    const unfinished=S.events.filter(e=>e.date===today&&!S.doneIds[e.id]);
+    if(unfinished.length){
+      unfinished.forEach(ev=>evToBank(ev));
+      sv();renderBank();renderDay(today);
+      toast('⏰ '+unfinished.length+' jadwal belum selesai → dipindah ke bank',3000);
+    }
+  }
+}
 function renderAll(){renderCal();renderBank();}
 
-window.addEventListener('load',()=>{
-  document.getElementById('w1').value=S.wa1||'';
-  document.getElementById('w2').value=S.wa2||'';
-  document.getElementById('wk').value=S.waKey||'';
-  document.getElementById('ak').value=S.aiKey||'';
-  const mw=document.getElementById('mob-wa'),mw2=document.getElementById('mob-wa2'),mt=document.getElementById('mob-token'),ma=document.getElementById('mob-aikey');
-  if(mw)mw.value=S.wa1||'';
-  if(mw2)mw2.value=S.wa2||'';
-  if(mt)mt.value=S.waKey||'';
-  if(ma)ma.value=S.aiKey||'';
-  applyMobIcons();
-  window.addEventListener('resize',applyMobIcons);
-  applyTheme();curView=S.view||'day';viewDate=new Date((S.viewDate||todayISO())+'T00:00:00');bankMode=S.bankMode||'work';
-  const vbs=document.querySelectorAll('.vb');const vm={day:0,week:1,month:2};vbs.forEach(b=>b.classList.remove('on'));if(vbs[vm[curView]])vbs[vm[curView]].classList.add('on');
-  const bel=document.getElementById(bankMode==='kuliah'?'bms-k':'bms-w');if(bel){document.querySelectorAll('.bms').forEach(b=>b.classList.remove('on'));bel.classList.add('on');}
+window.addEventListener('load',async()=>{
+  applyTheme();
+  // Tampilkan dulu dari localStorage sambil tunggu Supabase
+  curView=S.view||'day';
+  viewDate=new Date((S.viewDate||todayISO())+'T00:00:00');
+  bankMode=S.bankMode||'work';
+  const vbs=document.querySelectorAll('.vb');const vm={day:0,week:1,month:2};
+  vbs.forEach(b=>b.classList.remove('on'));if(vbs[vm[curView]])vbs[vm[curView]].classList.add('on');
+  const bel=document.getElementById(bankMode==='kuliah'?'bms-k':'bms-w');
+  if(bel){document.querySelectorAll('.bms').forEach(b=>b.classList.remove('on'));bel.classList.add('on');}
   renderAll();updateClock();setInterval(updateClock,30000);
+
+  // Sync dari Supabase
+  toast('Menyinkronkan…',2000);
+  const loaded=await sbLoad();
+  if(loaded){
+    // Re-render dengan data terbaru
+    curView=S.view||'day';
+    viewDate=new Date((S.viewDate||todayISO())+'T00:00:00');
+    bankMode=S.bankMode||'work';
+    renderAll();
+    toast('Tersinkron ✓',1500);
+  }
+
+  // Isi semua input fields
+  const w1=document.getElementById('w1'),w2=document.getElementById('w2'),wk=document.getElementById('wk'),ak=document.getElementById('ak');
+  if(w1)w1.value=S.wa1||'';if(w2)w2.value=S.wa2||'';if(wk)wk.value=S.waKey||'';if(ak)ak.value=S.aiKey||'';
+  const mw=document.getElementById('mob-wa'),mw2=document.getElementById('mob-wa2'),mt=document.getElementById('mob-token'),ma=document.getElementById('mob-aikey');
+  if(mw)mw.value=S.wa1||'';if(mw2)mw2.value=S.wa2||'';if(mt)mt.value=S.waKey||'';if(ma)ma.value=S.aiKey||'';
+
+  applyMobIcons();window.addEventListener('resize',applyMobIcons);
   reqNotif().catch(()=>{});reschedAll();
   document.getElementById('ai-in').addEventListener('keydown',e=>{if(e.key==='Enter')sendAI();});
-  // Register service worker for PWA offline support
-  if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
-  }
+  if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}
 });
+
 </script>
 </body>
 </html>
