@@ -147,7 +147,6 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 .ev.can-move:active{cursor:grabbing}
 .ev.is-fixed{z-index:3;cursor:default;border-radius:3px;padding:3px 5px}
 .ev.is-fixed:hover{box-shadow:none!important}
-.ev.is-done{display:none}
 .ev.sel{outline:2px solid rgba(255,255,255,.9);outline-offset:1px}
 .ev-n{font-size:11px;font-weight:700;color:rgba(255,255,255,0.96);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ev-t{font-size:9px;color:rgba(255,255,255,0.82);margin-top:1px;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -320,6 +319,7 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 <div class="tabs">
   <button class="tb on" onclick="switchTab('cal',this)">Kalender</button>
   <button class="tb" onclick="switchTab('fin',this)">Keuangan</button>
+  <button class="tb" onclick="switchTab('arsip',this)">Arsip</button>
 </div>
 <div class="pages">
 <div id="cal" class="pg on">
@@ -378,6 +378,18 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 <div id="fin" class="pg" style="flex-direction:column">
   <div class="fin-pg" id="fin-wrap"></div>
 </div>
+
+<!-- ARSIP -->
+<div id="arsip" class="pg" style="flex-direction:column;overflow-y:auto;padding:12px;gap:8px">
+  <div style="max-width:700px;margin:0 auto;width:100%">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:14px;font-weight:700;color:var(--tx)">Arsip Selesai</div>
+      <button onclick="clearArsip()" style="background:var(--redl);border:1px solid var(--red);border-radius:7px;padding:4px 12px;font-size:11px;font-weight:600;color:var(--red);cursor:pointer;font-family:'Inter',sans-serif">Hapus Semua</button>
+    </div>
+    <div id="arsip-list"></div>
+  </div>
+</div>
+
 </div>
 </div>
 
@@ -533,9 +545,9 @@ function catLabel(id){return ALL_CATS.find(c=>c.id===id)?.label||id}
 function catMode(id){return KUL_CATS.find(c=>c.id===id)?'kuliah':'work'}
 
 // ── STATE ──
-const DEF={events:[],bank:[],reminders:[],wa1:'',wa2:'',waKey:'',viewDate:todayISO(),view:'day',bankMode:'work',theme:'light',doneIds:{},incomes:[{id:'i1',src:'PUPR',nom:5600000,actual:5600000,date:'Minggu 2–3'},{id:'i2',src:'Soga (nett)',nom:800000,actual:800000,date:'Tgl 1'},{id:'i3',src:'Freelance',nom:1500000,actual:1500000,date:'Varies'},{id:'i4',src:'Kopken',nom:2000000,actual:2000000,date:'Varies'}],expenses:[]};
+const DEF={events:[],bank:[],reminders:[],arsip:[],wa1:'',wa2:'',waKey:'',viewDate:todayISO(),view:'day',bankMode:'work',theme:'light',doneIds:{},incomes:[{id:'i1',src:'PUPR',nom:5600000,actual:5600000,date:'Minggu 2–3'},{id:'i2',src:'Soga (nett)',nom:800000,actual:800000,date:'Tgl 1'},{id:'i3',src:'Freelance',nom:1500000,actual:1500000,date:'Varies'},{id:'i4',src:'Kopken',nom:2000000,actual:2000000,date:'Varies'}],expenses:[]};
 let S=JSON.parse(localStorage.getItem('ios-v15')||'null')||JSON.parse(JSON.stringify(DEF));
-['events','bank','reminders','incomes','expenses'].forEach(k=>{if(!S[k])S[k]=[];});
+['events','bank','reminders','incomes','expenses','arsip'].forEach(k=>{if(!S[k])S[k]=[];});
 if(!S.doneIds)S.doneIds={};
 // ── SUPABASE SYNC ──
 const SB_URL='https://itzvaajmpfjdmwmmgkcw.supabase.co';
@@ -548,10 +560,12 @@ async function sbSave(){
   try{
     await fetch(`${SB_URL}/rest/v1/data?user_id=eq.${SB_USER}`,{
       method:'DELETE',
+      mode:'cors',
       headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
     });
     await fetch(`${SB_URL}/rest/v1/data`,{
       method:'POST',
+      mode:'cors',
       headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
       body:JSON.stringify({user_id:SB_USER,payload})
     });
@@ -561,15 +575,15 @@ async function sbSave(){
 async function sbLoad(){
   try{
     const res=await fetch(`${SB_URL}/rest/v1/data?user_id=eq.${SB_USER}&select=payload`,{
+      mode:'cors',
       headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
     });
     const rows=await res.json();
     if(rows&&rows.length&&rows[0].payload){
       const remote=JSON.parse(rows[0].payload);
-      // merge: remote wins for events/bank/reminders, keep local credentials
       const localCreds={wa1:S.wa1,wa2:S.wa2,waKey:S.waKey,aiKey:S.aiKey};
       S={...remote,...localCreds};
-      ['events','bank','reminders','incomes','expenses'].forEach(k=>{if(!S[k])S[k]=[];});
+      ['events','bank','reminders','incomes','expenses','arsip'].forEach(k=>{if(!S[k])S[k]=[];});
       if(!S.doneIds)S.doneIds={};
       localStorage.setItem('ios-v15',JSON.stringify(S));
       return true;
@@ -774,7 +788,9 @@ function renderDay(ds){
     const op=e.priority==='chill'?0.72:1;
     const priDot=e.priority==='urgent'?'🔴':e.priority==='normal'?'🔵':'🟢';
     const isKul=KUL_CATS.some(c=>c.id===e.cat);
-    evHtml+=`<div class="ev can-move${isSel?' sel':''}${isDone?' is-done':''}" id="ev_${e.id}" data-id="${e.id}"
+    // Skip render event yang sudah selesai - hilang total dari timeline
+    if(isDone)return;
+    evHtml+=`<div class="ev can-move${isSel?' sel':''}" id="ev_${e.id}" data-id="${e.id}"
       style="top:${top}px;height:${h}px;left:${geom.left};width:${geom.width};background:${catColor(e.cat)};opacity:${op}"
       onmousedown="evMD(event,'${e.id}')"
       onclick="evClick(event,'${e.id}')">
@@ -782,7 +798,7 @@ function renderDay(ds){
       <div class="ev-t">${e.start}–${m2t(Math.min(1440,startM+dur))}</div>
       <div class="ev-tag">${isKul?'📚':'💼'} ${catLabel(e.cat)}${e.note?' · '+e.note.substring(0,16):''}</div>
       <div class="ev-acts">
-        <button class="ea-btn ea-done${isDone?' active':''}" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();toggleDone('${e.id}')">${isDone?'↺ Ulang':'✓ Selesai'}</button>
+        <button class="ea-btn ea-done" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();markDone('${e.id}')">✓ Selesai</button>
         <button class="ea-btn ea-bank" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();returnEvToBank('${e.id}')">← Bank</button>
       </div>
       <div class="ev-rz" onmousedown="rzMD(event,'${e.id}')"></div>
@@ -810,7 +826,29 @@ function renderDay(ds){
   },0);
 }
 
-function toggleDone(id){S.doneIds[id]=!S.doneIds[id];sv();renderDay(S.viewDate);renderBank();toast(S.doneIds[id]?'Selesai ✓':'Dibatalkan');}
+function markDone(id){
+  const ev=S.events.find(x=>x.id===id);if(!ev)return;
+  const copy={...ev,doneAt:new Date().toISOString()};
+  // Pindah ke arsip
+  if(!S.arsip)S.arsip=[];
+  S.arsip.unshift(copy); // arsip terbaru di atas
+  // Hapus dari events dan bank
+  S.events=S.events.filter(x=>x.id!==id);
+  S.bank=S.bank.filter(b=>!(b.name===ev.name&&b.cat===ev.cat));
+  S.doneIds[id]=true;
+  sv();
+  // Hapus element langsung tanpa re-render
+  const el=document.getElementById('ev_'+id);
+  if(el)el.remove();
+  renderBank();
+  toast('✓ Selesai — masuk arsip');
+  pushUndo('Tandai selesai',()=>{
+    S.events.push(ev);
+    S.arsip=S.arsip.filter(a=>a.id!==id);
+    delete S.doneIds[id];
+    sv();renderAll();
+  });
+}
 
 // COLUMN mousedown → create event by drawing
 function colMD(e,ds){
@@ -1285,7 +1323,53 @@ function applyMobIcons(){
 }
 
 // ── TABS / CLOCK ──
-function switchTab(id,el){document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));document.querySelectorAll('.tb').forEach(b=>b.classList.remove('on'));document.getElementById(id).classList.add('on');el.classList.add('on');if(id==='fin')renderFin();}
+function renderArsip(){
+  const el=document.getElementById('arsip-list');if(!el)return;
+  if(!S.arsip)S.arsip=[];
+  if(!S.arsip.length){el.innerHTML='<div style="text-align:center;color:var(--tx3);font-size:13px;padding:40px 0">Belum ada yang selesai.</div>';return;}
+  el.innerHTML=S.arsip.map((a,i)=>{
+    const doneDate=a.doneAt?new Date(a.doneAt).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
+    const cc=catColor(a.cat);
+    return`<div style="background:var(--glass);border:1px solid var(--bdr);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px;border-left:3px solid ${cc}">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--tx);display:flex;align-items:center;gap:6px">
+          <span style="color:${cc}">${catLabel(a.cat)}</span>
+          <span>${a.name}</span>
+          <span style="font-size:10px;background:var(--grnl);color:var(--grn);padding:1px 6px;border-radius:99px;font-weight:700">✓ Selesai</span>
+        </div>
+        <div style="font-size:11px;color:var(--tx3);margin-top:3px">${a.date} · ${a.start}–${a.end} · Selesai ${doneDate}</div>
+      </div>
+      <button onclick="restoreArsip(${i})" style="background:var(--acl);border:1px solid rgba(79,70,229,.2);border-radius:7px;padding:4px 10px;font-size:11px;font-weight:600;color:var(--ac);cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap">↩ Pulihkan</button>
+      <button onclick="deleteArsip(${i})" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:14px;padding:2px">×</button>
+    </div>`;
+  }).join('');
+}
+function restoreArsip(i){
+  if(!S.arsip||!S.arsip[i])return;
+  const ev={...S.arsip[i]};
+  delete ev.doneAt;
+  delete S.doneIds[ev.id];
+  S.events.push(ev);
+  S.arsip.splice(i,1);
+  sv();renderAll();renderArsip();
+  toast('"'+ev.name+'" dipulihkan ke timeline');
+}
+function deleteArsip(i){
+  if(!S.arsip||!S.arsip[i])return;
+  S.arsip.splice(i,1);
+  sv();renderArsip();
+}
+function clearArsip(){
+  if(!confirm('Hapus semua arsip?'))return;
+  S.arsip=[];sv();renderArsip();
+}
+function switchTab(id,el){
+  document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.tb').forEach(b=>b.classList.remove('on'));
+  document.getElementById(id).classList.add('on');el.classList.add('on');
+  if(id==='fin')renderFin();
+  if(id==='arsip')renderArsip();
+}
 function updateClock(){
   const n=jkt();
   document.getElementById('clock').textContent=pad(n.getHours())+':'+pad(n.getMinutes());
