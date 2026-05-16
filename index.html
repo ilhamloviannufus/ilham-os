@@ -147,7 +147,7 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 .ev.can-move:active{cursor:grabbing}
 .ev.is-fixed{z-index:3;cursor:default;border-radius:3px;padding:3px 5px}
 .ev.is-fixed:hover{box-shadow:none!important}
-.ev.is-done{opacity:.38}
+.ev.is-done{display:none}
 .ev.sel{outline:2px solid rgba(255,255,255,.9);outline-offset:1px}
 .ev-n{font-size:11px;font-weight:700;color:rgba(255,255,255,0.96);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ev-t{font-size:9px;color:rgba(255,255,255,0.82);margin-top:1px;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -162,8 +162,6 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
 .ea-done{background:rgba(16,185,129,.45)}
 .ea-done.active{background:rgba(16,185,129,.82)}
 .ea-bank{background:rgba(239,68,68,.38)}
-/* done event: hilang dari timeline tapi masih bisa di-undo */
-.ev.is-done{display:none}
 /* resize */
 .ev-rz{position:absolute;bottom:0;left:0;right:0;height:6px;cursor:s-resize;background:rgba(255,255,255,.2);border-radius:0 0 6px 6px;opacity:0;transition:.1s;z-index:13}
 .ev:hover .ev-rz{opacity:1}
@@ -1294,16 +1292,25 @@ function updateClock(){
   document.getElementById('hdate').textContent=DAY_L[n.getDay()]+', '+n.getDate()+' '+MON_S[n.getMonth()]+' '+n.getFullYear();
   const nl=document.getElementById('nl');
   if(nl&&S.viewDate===todayISO())nl.style.top=minToPx(curMin())+'px';
-  // Auto-bank: jam 23:59 semua event hari ini yang belum selesai balik ke bank
-  const h=n.getHours(),m=n.getMinutes();
-  if(h===23&&m===59){
-    const today=todayISO();
-    const unfinished=S.events.filter(e=>e.date===today&&!S.doneIds[e.id]);
-    if(unfinished.length){
-      unfinished.forEach(ev=>evToBank(ev));
-      sv();renderBank();renderDay(today);
-      toast('⏰ '+unfinished.length+' jadwal belum selesai → dipindah ke bank',3000);
-    }
+}
+function scheduleAutoBank(){
+  // Jadwal tepat jam 23:59:00 hari ini
+  const now=jkt();
+  const target=new Date(now);
+  target.setHours(23,59,0,0);
+  const ms=target.getTime()-now.getTime();
+  if(ms>0){
+    setTimeout(()=>{
+      const today=todayISO();
+      const unfinished=S.events.filter(e=>e.date===today&&!S.doneIds[e.id]);
+      if(unfinished.length){
+        unfinished.forEach(ev=>evToBank(ev));
+        sv();renderBank();renderDay(today);
+        toast('⏰ '+unfinished.length+' jadwal belum selesai → masuk bank',3000);
+      }
+      // Jadwal ulang untuk besok
+      setTimeout(scheduleAutoBank,120000);
+    },ms);
   }
 }
 function renderAll(){renderCal();renderBank();}
@@ -1319,6 +1326,7 @@ window.addEventListener('load',async()=>{
   const bel=document.getElementById(bankMode==='kuliah'?'bms-k':'bms-w');
   if(bel){document.querySelectorAll('.bms').forEach(b=>b.classList.remove('on'));bel.classList.add('on');}
   renderAll();updateClock();setInterval(updateClock,30000);
+  scheduleAutoBank();
 
   // Sync dari Supabase
   toast('Menyinkronkan…',2000);
