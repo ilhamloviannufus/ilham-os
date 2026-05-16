@@ -1117,24 +1117,33 @@ async function sendAI(){
   }
   inp.value='';
   const resp=document.getElementById('ai-resp');
-  resp.textContent='Asri sedang berpikir…';
+  resp.textContent='Asri sedang memproses…';
   const ds=S.viewDate;
   const evList=S.events.filter(e=>e.date===ds).map(e=>`"${e.name}" ${e.start}–${e.end} ${catLabel(e.cat)} ${e.priority}`).join('; ')||'kosong';
   const bkList=S.bank.filter(b=>!bankItemScheduled(b)).map(b=>`"${b.name}" ${catLabel(b.cat)} ${b.dur}m`).join('; ')||'kosong';
+  const remList=S.reminders.map(r=>`"${r.text}" ${r.time||''}`).join('; ')||'kosong';
   const sys=`Kamu adalah Asri, asisten jadwal pribadi Ilham. Hari ini: ${ds} WIB.
 Jadwal ${ds}: ${evList}
-Bank belum dijadwal: ${bkList}
+Bank: ${bkList}
+Reminder aktif: ${remList}
 
-Operasi yang bisa kamu lakukan — jika user meminta, balas HANYA JSON (tanpa teks lain):
-add event: {"op":"add","name":"","start":"HH:MM","end":"HH:MM","cat":"pupr/soga/freelance/kopken/personal/mrt/ctx/tech/rsch","priority":"urgent/normal/chill","date":"${ds}"}
-hapus: {"op":"delete","name":""}
+ATURAN PENTING:
+- Selalu ikuti perintah Ilham TANPA sanggahan, TANPA pertanyaan balik, TANPA saran alternatif
+- Jika Ilham minta tambah jadwal jam X, langsung tambah jam X — jangan kasih peringatan soal bentrok atau waktu
+- Eksekusi langsung, konfirmasi singkat
+- Balas HANYA JSON untuk operasi, teks singkat untuk percakapan (maks 30 kata)
+
+Operasi tersedia — balas HANYA JSON:
+tambah event: {"op":"add","name":"","start":"HH:MM","end":"HH:MM","cat":"pupr/soga/freelance/kopken/personal/mrt/ctx/tech/rsch","priority":"urgent/normal/chill","date":"${ds}"}
+hapus event: {"op":"delete","name":""}
 pindah waktu: {"op":"move","name":"","start":"HH:MM","end":"HH:MM"}
 ke bank: {"op":"to_bank","name":""}
 selesai: {"op":"done","name":""}
 tambah bank: {"op":"add_bank","name":"","cat":"","priority":"normal","dur":60}
-geser: {"op":"shift","names":[],"minutes":0}
+geser event: {"op":"shift","names":[],"minutes":0}
+tambah reminder: {"op":"add_reminder","text":"","time":"HH:MM","priority":"urgent/normal/chill","repeat":"daily/weekly/monthly/","until":"YYYY-MM-DD or null","sendWa":false}
+hapus reminder: {"op":"delete_reminder","text":""}`;
 
-Jika pertanyaan biasa, balas Bahasa Indonesia santai, maks 80 kata. Jika operasi, balas HANYA JSON.`;
   try{
     const res=await fetch('https://ilhamos.ilhamloviannufus.workers.dev',{
       method:'POST',
@@ -1157,15 +1166,71 @@ Jika pertanyaan biasa, balas Bahasa Indonesia santai, maks 80 kata. Jika operasi
     else resp.textContent=text;
   }catch(e){resp.textContent='Error: '+e.message;}
 }
+
 function executeAIOp(op){
   const ds=S.viewDate;
-  if(op.op==='add'){const ev={id:'ev_'+Date.now(),name:op.name,cat:op.cat||'personal',priority:op.priority||'normal',start:op.start||'09:00',end:op.end||'10:00',date:op.date||ds,note:''};S.events.push(ev);scheduleNotifs(ev);return`"${op.name}" ditambah ${op.start}–${op.end}`;}
-  if(op.op==='delete'){const i=S.events.findIndex(e=>e.name.toLowerCase().includes((op.name||'').toLowerCase()));if(i>=0){const nm=S.events[i].name;S.events.splice(i,1);return`"${nm}" dihapus`;}return'Event tidak ditemukan';}
-  if(op.op==='move'){const ev=S.events.find(e=>e.name.toLowerCase().includes((op.name||'').toLowerCase()));if(ev){ev.start=op.start;ev.end=op.end;return`"${ev.name}" → ${op.start}–${op.end}`;}return'Event tidak ditemukan';}
-  if(op.op==='to_bank'){const ev=S.events.find(e=>e.name.toLowerCase().includes((op.name||'').toLowerCase()));if(ev){evToBank(ev);return`"${ev.name}" dipindah ke bank`;}return'Event tidak ditemukan';}
-  if(op.op==='done'){const ev=S.events.find(e=>e.name.toLowerCase().includes((op.name||'').toLowerCase()));if(ev){S.doneIds[ev.id]=true;return`"${ev.name}" selesai`;}return'Event tidak ditemukan';}
-  if(op.op==='add_bank'){S.bank.push({id:'bk_'+Date.now(),name:op.name,cat:op.cat||'personal',priority:op.priority||'normal',dur:op.dur||60,targetDate:null});return`"${op.name}" masuk bank`;}
-  if(op.op==='shift'){const names=op.names||[];const dm=op.minutes||0;let n=0;S.events.forEach(e=>{if(!names.length||names.some(x=>e.name.toLowerCase().includes(x.toLowerCase()))){const dur=Math.max(SNAP,t2m(e.end)-t2m(e.start));const ns=Math.max(0,Math.min(1410,t2m(e.start)+dm));e.start=m2t(ns);e.end=m2t(Math.min(1440,ns+dur));n++;}});return`${n} event digeser ${dm>0?'+':''}${dm}m`;}
+  if(op.op==='add'){
+    const ev={id:'ev_'+Date.now(),name:op.name,cat:op.cat||'personal',priority:op.priority||'normal',start:op.start||'09:00',end:op.end||'10:00',date:op.date||ds,note:''};
+    S.events.push(ev);scheduleNotifs(ev);
+    return`"${op.name}" ditambah ${op.start}–${op.end}`;
+  }
+  if(op.op==='delete'){
+    const i=S.events.findIndex(e=>e.name.toLowerCase().includes((op.name||'').toLowerCase()));
+    if(i>=0){const nm=S.events[i].name;S.events.splice(i,1);return`"${nm}" dihapus`;}
+    return'Event tidak ditemukan';
+  }
+  if(op.op==='move'){
+    const ev=S.events.find(e=>e.name.toLowerCase().includes((op.name||'').toLowerCase()));
+    if(ev){ev.start=op.start;ev.end=op.end;return`"${ev.name}" → ${op.start}–${op.end}`;}
+    return'Event tidak ditemukan';
+  }
+  if(op.op==='to_bank'){
+    const ev=S.events.find(e=>e.name.toLowerCase().includes((op.name||'').toLowerCase()));
+    if(ev){evToBank(ev);return`"${ev.name}" dipindah ke bank`;}
+    return'Event tidak ditemukan';
+  }
+  if(op.op==='done'){
+    const ev=S.events.find(e=>e.name.toLowerCase().includes((op.name||'').toLowerCase()));
+    if(ev){markDone(ev.id);return`"${ev.name}" selesai → arsip`;}
+    return'Event tidak ditemukan';
+  }
+  if(op.op==='add_bank'){
+    S.bank.push({id:'bk_'+Date.now(),name:op.name,cat:op.cat||'personal',priority:op.priority||'normal',dur:op.dur||60,targetDate:null});
+    return`"${op.name}" masuk bank`;
+  }
+  if(op.op==='shift'){
+    const names=op.names||[];const dm=op.minutes||0;let n=0;
+    S.events.forEach(e=>{
+      if(!names.length||names.some(x=>e.name.toLowerCase().includes(x.toLowerCase()))){
+        const dur=Math.max(SNAP,t2m(e.end)-t2m(e.start));
+        const ns=Math.max(0,Math.min(1410,t2m(e.start)+dm));
+        e.start=m2t(ns);e.end=m2t(Math.min(1440,ns+dur));n++;
+      }
+    });
+    return`${n} event digeser ${dm>0?'+':''}${dm}m`;
+  }
+  if(op.op==='add_reminder'){
+    const r={
+      id:'rem_'+Date.now(),
+      text:op.text||'Reminder',
+      time:op.time||null,
+      priority:op.priority||'normal',
+      checked:false,
+      sendWa:op.sendWa||false,
+      repeat:op.repeat||null,
+      until:op.until||null,
+      repeatDays:[],
+      createdDate:ds
+    };
+    S.reminders.push(r);
+    if(r.sendWa&&r.time)schedWaRem(r);
+    return`Reminder "${r.text}"${r.time?' jam '+r.time:''} ditambah`;
+  }
+  if(op.op==='delete_reminder'){
+    const i=S.reminders.findIndex(r=>r.text.toLowerCase().includes((op.text||'').toLowerCase()));
+    if(i>=0){const tx=S.reminders[i].text;S.reminders.splice(i,1);return`Reminder "${tx}" dihapus`;}
+    return'Reminder tidak ditemukan';
+  }
   return'Operasi tidak dikenal';
 }
 
