@@ -546,7 +546,16 @@ function catMode(id){return KUL_CATS.find(c=>c.id===id)?'kuliah':'work'}
 
 // ── STATE ──
 const DEF={events:[],bank:[],reminders:[],arsip:[],wa1:'',wa2:'',waKey:'',viewDate:todayISO(),view:'day',bankMode:'work',theme:'light',doneIds:{},incomes:[{id:'i1',src:'PUPR',nom:5600000,actual:5600000,date:'Minggu 2–3'},{id:'i2',src:'Soga (nett)',nom:800000,actual:800000,date:'Tgl 1'},{id:'i3',src:'Freelance',nom:1500000,actual:1500000,date:'Varies'},{id:'i4',src:'Kopken',nom:2000000,actual:2000000,date:'Varies'}],expenses:[]};
-let S=JSON.parse(localStorage.getItem('ios-v15')||'null')||JSON.parse(JSON.stringify(DEF));
+// Coba load dari localStorage utama, kalau kosong coba backup
+let _raw=localStorage.getItem('ios-v15');
+let _rawBackup=localStorage.getItem('ios-v15-backup');
+let S=null;
+try{S=JSON.parse(_raw);}catch{}
+// Kalau utama kosong/tidak ada events, coba backup
+if(!S||!(S.events&&S.events.length)){
+  try{const b=JSON.parse(_rawBackup);if(b&&b.events&&b.events.length){S=b;}}catch{}
+}
+if(!S)S=JSON.parse(JSON.stringify(DEF));
 ['events','bank','reminders','incomes','expenses','arsip'].forEach(k=>{if(!S[k])S[k]=[];});
 if(!S.doneIds)S.doneIds={};
 // ── SUPABASE SYNC ──
@@ -581,22 +590,51 @@ async function sbLoad(){
     const rows=await res.json();
     if(rows&&rows.length&&rows[0].payload){
       const remote=JSON.parse(rows[0].payload);
+      // Proteksi: jangan overwrite kalau remote lebih sedikit datanya dari lokal
+      const localEvents=(S.events||[]).length;
+      const remoteEvents=(remote.events||[]).length;
+      if(remoteEvents===0&&localEvents>0){
+        // Remote kosong tapi lokal ada data — jangan overwrite, malah push lokal ke remote
+        console.warn('Remote kosong tapi lokal ada data — skip load, push lokal ke remote');
+        sbSave();
+        return false;
+      }
       const localCreds={wa1:S.wa1,wa2:S.wa2,waKey:S.waKey,aiKey:S.aiKey};
       S={...remote,...localCreds};
       ['events','bank','reminders','incomes','expenses','arsip'].forEach(k=>{if(!S[k])S[k]=[];});
       if(!S.doneIds)S.doneIds={};
+      // Simpan ke 2 key localStorage sebagai backup ganda
       localStorage.setItem('ios-v15',JSON.stringify(S));
+      localStorage.setItem('ios-v15-backup',JSON.stringify(S));
       return true;
     }
   }catch(e){console.warn('Supabase load error:',e);}
   return false;
 }
 
-// debounced save — tunggu 1.5 detik setelah perubahan terakhir baru sync
+// debounced save — simpan ke localStorage + Supabase
 function sv(){
   localStorage.setItem('ios-v15',JSON.stringify(S));
+  localStorage.setItem('ios-v15-backup',JSON.stringify(S)); // backup ganda
   clearTimeout(_sbSaveTimer);
   _sbSaveTimer=setTimeout(()=>{sbSave();},1500);
+}
+
+// Restore dari backup jika data utama kosong
+function restoreFromBackup(){
+  const backup=localStorage.getItem('ios-v15-backup');
+  if(backup){
+    try{
+      const b=JSON.parse(backup);
+      if(b.events&&b.events.length>0){
+        S={...b};
+        localStorage.setItem('ios-v15',backup);
+        toast('Data dipulihkan dari backup lokal ✓',2500);
+        return true;
+      }
+    }catch(e){}
+  }
+  return false;
 }
 function saveAndRender(msg){sv();renderAll();if(msg)toast(msg);}
 
