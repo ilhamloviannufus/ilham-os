@@ -1,4 +1,4 @@
-const CACHE = 'ilham-os-v3';
+const CACHE = 'ilham-os-v5';
 const ASSETS = [
   '/',
   '/index.html',
