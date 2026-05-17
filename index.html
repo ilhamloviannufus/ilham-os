@@ -222,10 +222,10 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
     box-shadow:0 -4px 20px rgba(0,0,0,0.15);
   }
 }
-.ai-in{flex:1;background:var(--glass);border:1px solid var(--bdr2);border-radius:8px;padding:7px 10px;font-family:'Inter',sans-serif;font-size:12px;color:var(--tx);outline:none;transition:.12s}
+.ai-in{flex:1;background:var(--glass);border:1px solid var(--bdr2);border-radius:8px;padding:7px 10px;font-family:'Inter',sans-serif;font-size:12px;color:var(--tx);outline:none;transition:.12s;width:100%}
 .ai-in:focus{border-color:var(--ac)}
 .ai-in::placeholder{color:var(--tx3)}
-@media(max-width:700px){.ai-in{font-size:16px;/* prevent iOS zoom on focus */}}
+@media(max-width:700px){.ai-in{font-size:16px;}}
 .ai-send{background:var(--ac);border:none;border-radius:8px;padding:7px 12px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap}
 .ai-send:hover{background:var(--ac2)}
 .ai-resp{font-size:11px;color:var(--tx3);padding:2px 4px;font-style:italic;max-height:40px;overflow:hidden;line-height:1.4}
@@ -292,6 +292,9 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
     <div class="icon-btn" onclick="toggleTheme()" id="theme-ico">🌙</div>
     <div class="icon-btn" onclick="reqNotif()">🔔</div>
     <div class="icon-btn" onclick="testWA()" title="Test kirim WA" style="font-size:10px;font-weight:700;color:var(--tx2)">TEST</div>
+    <div class="icon-btn" onclick="exportData()" title="Export backup data" style="font-size:10px;font-weight:700;color:var(--grn)">BAK</div>
+    <div class="icon-btn" onclick="document.getElementById('import-file').click()" title="Import backup data" style="font-size:10px;font-weight:700;color:var(--amb)">IMP</div>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(this)">
   </div>
 </div>
 <!-- Mobile settings panel -->
@@ -359,9 +362,14 @@ body::before{content:'';position:fixed;inset:0;z-index:-1;transition:.3s}
     <div class="ai-bar">
       <div style="flex:1;display:flex;flex-direction:column;gap:3px">
         <div class="ai-resp" id="ai-resp"></div>
-        <input class="ai-in" id="ai-in" placeholder='Ketik ke Asri: "tambah meeting jam 14-15 kuliah", "hapus desain", "pindah rapat ke jam 10"…'>
+        <textarea class="ai-in" id="ai-in" rows="2"
+          placeholder="Ketik 1 atau banyak sekaligus, contoh:&#10;ingatkan 09 kain tosermuh&#10;07-09 riset komentar&#10;08.30 task bulan dpupr"
+          style="resize:none;line-height:1.4"></textarea>
       </div>
-      <button class="ai-send" onclick="sendAI()">Kirim</button>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button class="ai-send" onclick="sendAI()" style="flex:1">Kirim</button>
+        <button class="ai-send" onclick="sendBulk()" style="flex:1;background:var(--grn);font-size:10px">Massal</button>
+      </div>
     </div>
   </div>
   <div class="col-rem">
@@ -1146,11 +1154,107 @@ function closeOv(id){document.getElementById(id).classList.remove('on');}
 document.querySelectorAll('.ov').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('on');}));
 
 // ── AI CHAT ──
+// ── BULK PARSE (lokal, tanpa AI, super cepat) ──
+// Format yang dipahami:
+// "ingatkan/reminder/ingat HH[.MM] nama" → reminder
+// "konfirmasi/check HH[.MM] nama" → reminder  
+// "HH-HH nama" atau "HH.MM-HH.MM nama" → event dengan range waktu
+// "HH[.MM] nama" → event 1 jam
+// Keyword kategori: pupr, soga, freelance, kopken, mrt/srt, ctx, tech, rsch → auto detect
+
+const REMINDER_WORDS=['ingatkan','reminder','ingat','remind','alarm','notif','konfirmasi','confirm','check','cek'];
+const CAT_WORDS={pupr:'pupr',soga:'soga',freelance:'freelance',kopken:'kopken',mrt:'mrt',srt:'mrt',ctx:'ctx',tech:'tech',rsch:'rsch',porto:'personal',logo:'personal',web:'personal',aplikasi:'personal',dpupr:'pupr'};
+
+function parseTime(s){
+  // "09", "9", "09.30", "9.30", "09:30"
+  s=s.trim().replace(':','.');
+  const p=s.split('.');
+  const h=parseInt(p[0]);
+  const m=p[1]?parseInt(p[1].padEnd(2,'0')):0;
+  if(isNaN(h)||h<0||h>23)return null;
+  return pad(h)+':'+pad(Math.min(59,m));
+}
+function detectCat(text){
+  const low=text.toLowerCase();
+  const keys=Object.keys(CAT_WORDS);
+  for(let i=0;i<keys.length;i++){if(low.includes(keys[i]))return CAT_WORDS[keys[i]];}
+  return'personal';
+}
+function parseLine(line,ds){
+  line=line.trim();
+  if(!line)return null;
+  const low=line.toLowerCase();
+  // Cek apakah reminder
+  const isReminder=REMINDER_WORDS.some(w=>low.startsWith(w));
+  if(isReminder){
+    // hapus keyword di awal
+    let rest=line.replace(/^(\S+)\s*/,'').trim();
+    // cari waktu
+    const timeMatch=rest.match(/^(\d{1,2}[.:]\d{2}|\d{1,2})\s+/);
+    let time=null,name=rest;
+    if(timeMatch){time=parseTime(timeMatch[1]);name=rest.slice(timeMatch[0].length).trim();}
+    return{type:'reminder',text:name,time,priority:'normal'};
+  }
+  // Cek range waktu: "07-09" atau "07.30-09.00" atau "07:30-09:00"
+  const rangeMatch=line.match(/^(\d{1,2}[.:]\d{2}|\d{1,2})\s*[-–]\s*(\d{1,2}[.:]\d{2}|\d{1,2})\s+(.+)/);
+  if(rangeMatch){
+    const start=parseTime(rangeMatch[1]);
+    const end=parseTime(rangeMatch[2]);
+    const name=rangeMatch[3].trim();
+    if(start&&end){
+      const cat=detectCat(name);
+      return{type:'event',name,start,end,cat,date:ds,priority:'normal'};
+    }
+  }
+  // Cek jam tunggal: "09" atau "09.30" + nama
+  const singleMatch=line.match(/^(\d{1,2}[.:]\d{2}|\d{1,2})\s+(.+)/);
+  if(singleMatch){
+    const start=parseTime(singleMatch[1]);
+    const name=singleMatch[2].trim();
+    if(start){
+      // default durasi 1 jam
+      const sm=t2m(start);
+      const end=m2t(Math.min(1440,sm+60));
+      const cat=detectCat(name);
+      return{type:'event',name,start,end,cat,date:ds,priority:'normal'};
+    }
+  }
+  return null;
+}
+
+function sendBulk(){
+  const inp=document.getElementById('ai-in');
+  const text=inp.value.trim();
+  if(!text){toast('Ketik jadwal dulu!');return;}
+  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
+  const ds=S.viewDate;
+  let addedEv=0,addedRem=0,failed=[];
+  lines.forEach(line=>{
+    const parsed=parseLine(line,ds);
+    if(!parsed){failed.push(line);return;}
+    if(parsed.type==='event'){
+      const ev={id:'ev_'+Date.now()+Math.random(),name:parsed.name,cat:parsed.cat,priority:parsed.priority,start:parsed.start,end:parsed.end,date:parsed.date,note:''};
+      S.events.push(ev);scheduleNotifs(ev);addedEv++;
+    } else if(parsed.type==='reminder'){
+      const r={id:'rem_'+Date.now()+Math.random(),text:parsed.text,time:parsed.time,priority:parsed.priority,checked:false,sendWa:false,repeat:null,until:null,repeatDays:[],createdDate:ds};
+      S.reminders.push(r);addedRem++;
+    }
+  });
+  inp.value='';
+  sv();renderAll();
+  let msg=`✓ ${addedEv} jadwal + ${addedRem} reminder ditambah`;
+  if(failed.length)msg+=` · Gagal: ${failed.join(', ')}`;
+  document.getElementById('ai-resp').textContent=msg;
+  toast(msg,3000);
+}
+
 async function sendAI(){
   const inp=document.getElementById('ai-in'),msg=inp.value.trim();if(!msg)return;
+  // Kalau multiline → arahkan ke sendBulk
+  if(msg.includes('\n')){sendBulk();return;}
   const aiKey=S.aiKey||'';
   if(!aiKey){
-    document.getElementById('ai-resp').textContent='⚙ Isi OpenAI API key dulu di pengaturan (ikon ⚙ di header).';
+    document.getElementById('ai-resp').textContent='⚙ Isi OpenAI API key dulu, atau pakai tombol Massal untuk input cepat tanpa AI.';
     return;
   }
   inp.value='';
@@ -1181,19 +1285,11 @@ tambah bank: {"op":"add_bank","name":"","cat":"","priority":"normal","dur":60}
 geser event: {"op":"shift","names":[],"minutes":0}
 tambah reminder: {"op":"add_reminder","text":"","time":"HH:MM","priority":"urgent/normal/chill","repeat":"daily/weekly/monthly/","until":"YYYY-MM-DD or null","sendWa":false}
 hapus reminder: {"op":"delete_reminder","text":""}`;
-
   try{
     const res=await fetch('https://ilhamos.ilhamloviannufus.workers.dev',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+aiKey},
-      body:JSON.stringify({
-        model:'gpt-4o-mini',
-        max_tokens:300,
-        messages:[
-          {role:'system',content:sys},
-          {role:'user',content:msg}
-        ]
-      })
+      body:JSON.stringify({model:'gpt-4o-mini',max_tokens:300,messages:[{role:'system',content:sys},{role:'user',content:msg}]})
     });
     const data=await res.json();
     if(data.error){resp.textContent='Error: '+data.error.message;return;}
@@ -1401,7 +1497,40 @@ function renderFin(){
 function addInc(){const s=document.getElementById('in-s')?.value.trim(),n=Number(document.getElementById('in-n')?.value);if(!s||!n)return;S.incomes.push({id:'i'+Date.now(),src:s,nom:n,actual:n,date:'Manual'});document.getElementById('in-s').value='';document.getElementById('in-n').value='';sv();renderFin();}
 function addExp(){const nm=document.getElementById('ex-n')?.value.trim(),n=Number(document.getElementById('ex-m')?.value);if(!nm||!n)return;S.expenses.push({name:nm,nom:n});document.getElementById('ex-n').value='';document.getElementById('ex-m').value='';sv();renderFin();}
 
-// ── MOBILE HELPERS ──
+// ── BACKUP / RESTORE ──
+function exportData(){
+  const now=new Date();
+  const tgl=now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes());
+  const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='ilham-os-backup-'+tgl+'.json';
+  a.click();URL.revokeObjectURL(a.href);
+  toast('Backup disimpan: ilham-os-backup-'+tgl+'.json',2500);
+}
+function importData(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      if(!data.events){toast('File tidak valid!',2500);return;}
+      // Pertahankan credentials lokal
+      const creds={wa1:S.wa1,wa2:S.wa2,waKey:S.waKey,aiKey:S.aiKey};
+      S={...data,...creds};
+      ['events','bank','reminders','incomes','expenses','arsip'].forEach(k=>{if(!S[k])S[k]=[];});
+      if(!S.doneIds)S.doneIds={};
+      sv(); // save ke localStorage + Supabase
+      renderAll();
+      toast('Data berhasil dipulihkan dari backup ✓',2500);
+    }catch(err){toast('Gagal import: '+err.message,2500);}
+  };
+  reader.readAsText(file);
+  input.value=''; // reset input
+}
+
+// Auto-export ke Supabase setiap 5 menit sebagai safety net
+setInterval(()=>{if(S.events&&S.events.length>0)sbSave();},5*60*1000);
 function toggleMobSettings(){
   const p=document.getElementById('mob-settings');
   p.classList.toggle('on');
@@ -1535,7 +1664,10 @@ window.addEventListener('load',async()=>{
 
   applyMobIcons();window.addEventListener('resize',applyMobIcons);
   reqNotif().catch(()=>{});reschedAll();
-  document.getElementById('ai-in').addEventListener('keydown',e=>{if(e.key==='Enter')sendAI();});
+  document.getElementById('ai-in').addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();sendAI();}
+    // Shift+Enter = newline (default), Enter biasa = newline juga di textarea
+  });
   if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}
 });
 
